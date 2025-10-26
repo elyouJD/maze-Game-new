@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="ar">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>لعبة المتاهة</title>
+    <style>
+      body {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background: #222;
+        color: #fff;
+        font-family: sans-serif;
+      }
+      .stage {
+        padding: 18px;
+        border-radius: 12px;
+        background: linear-gradient(180deg, #111, #0b1220);
+      }
+      #maze {
+        display: grid;
+        grid-template-columns: repeat(10, 48px);
+        grid-auto-rows: 48px;
+        gap: 6px;
+        background: #081019;
+        border-radius: 8px;
+      }
+      .cell {
+        width: 48px;
+        height: 48px;
+        border-radius: 8px;
+        overflow: hidden;
+        background-size: cover;
+        background-position: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .cell.floor {
+        background-image: url("pave (1).png");
+      }
+      .cell.wall {
+        background-image: url("wall (1) (1).png");
+        box-shadow: inset 0 -6px 14px rgba(0, 0, 0, 0.6);
+      }
+      .cell.exit {
+        background: linear-gradient(135deg, #10b981, #34d399);
+        font-weight: 700;
+        color: #022;
+      }
+      .hud {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+      .hud button {
+        background: #ffb020;
+        color: #042;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: none;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      /* أزرار التحكم */
+      .controls {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin-top: 16px;
+        gap: 8px;
+      }
+      .controls .row {
+        display: flex;
+        gap: 8px;
+      }
+      .controls button {
+        width: 48px;
+        height: 48px;
+        background: linear-gradient(145deg, #ffb020, #fca311);
+        color: #042;
+        font-size: 20px;
+        font-weight: bold;
+        border-radius: 12px;
+        border: none;
+        cursor: pointer;
+        transition: transform 0.1s, box-shadow 0.1s;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+      }
+      .controls button:active {
+        transform: translateY(2px);
+        box-shadow: 0 2px 3px rgba(0, 0, 0, 0.3);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="hud">
+        <div>🎯 المتاهة — المستوى: <span id="levelNum">1</span></div>
+        <div><button id="startBtn">ابدأ</button></div>
+      </div>
+      <div id="maze"></div>
+
+      <div class="controls">
+        <div class="row">
+          <button id="upBtn">⬆</button>
+        </div>
+        <div class="row">
+          <button id="leftBtn">⬅</button>
+          <button id="downBtn">⬇</button>
+          <button id="rightBtn">➡</button>
+        </div>
+      </div>
+    </div>
+
+    <audio id="winSound" src="applause.mp3" preload="auto"></audio>
+    <audio id="loseSound" src="crowd.mp3" preload="auto"></audio>
+
+    <script>
+      const cols = 10,
+        rows = 10,
+        cellPx = 48,
+        gap = 6;
+      const mazeEl = document.getElementById("maze");
+      const levelNum = document.getElementById("levelNum");
+      const winSound = document.getElementById("winSound");
+      const loseSound = document.getElementById("loseSound");
+
+      let level = 1,
+        mazeData = [],
+        mousePos = { x: 1, y: 1 },
+        catPos = { x: 8, y: 8 },
+        exitPos = { x: cols - 2, y: rows - 2 },
+        catInterval = null;
+
+      function generateMaze(lv) {
+        mazeData = Array(rows)
+          .fill(0)
+          .map(() => Array(cols).fill(1));
+        const start = { x: 1, y: 1 },
+          goal = { x: cols - 2, y: rows - 2 };
+        const stack = [start];
+        mazeData[start.y][start.x] = 0;
+        const dirs = [
+          { x: 1, y: 0 },
+          { x: -1, y: 0 },
+          { x: 0, y: 1 },
+          { x: 0, y: -1 },
+        ];
+
+        while (stack.length) {
+          const cur = stack[stack.length - 1];
+          const shuffled = dirs.sort(() => Math.random() - 0.5);
+          let carved = false;
+          for (const d of shuffled) {
+            const nx = cur.x + d.x * 2,
+              ny = cur.y + d.y * 2;
+            if (
+              nx > 0 &&
+              nx < cols - 1 &&
+              ny > 0 &&
+              ny < rows - 1 &&
+              mazeData[ny][nx] === 1
+            ) {
+              mazeData[cur.y + d.y][cur.x + d.x] = 0;
+              mazeData[ny][nx] = 0;
+              stack.push({ x: nx, y: ny });
+              carved = true;
+              break;
+            }
+          }
+          if (!carved) stack.pop();
+        }
+
+        let extra = Math.min(60, 8 + lv * 6);
+        for (let i = 0; i < extra; i++) {
+          const rx = 1 + Math.floor(Math.random() * (cols - 2));
+          const ry = 1 + Math.floor(Math.random() * (rows - 2));
+          mazeData[ry][rx] = 0;
+        }
+
+        mazeData[goal.y][goal.x] = 2;
+        exitPos = { ...goal };
+
+        // الفأر
+        outer: for (let y = 1; y < rows - 1; y++) {
+          for (let x = 1; x < cols - 1; x++) {
+            if (mazeData[y][x] === 0) {
+              mousePos = { x, y };
+              break outer;
+            }
+          }
+        }
+        // القط
+        outer: for (let y = rows - 2; y > 0; y--) {
+          for (let x = cols - 2; x > 0; x--) {
+            if (
+              mazeData[y][x] === 0 &&
+              Math.abs(x - mousePos.x) + Math.abs(y - mousePos.y) >= 3
+            ) {
+              catPos = { x, y };
+              break outer;
+            }
+          }
+        }
+      }
+
+      function drawMaze() {
+        mazeEl.innerHTML = "";
+        for (let y = 0; y < rows; y++) {
+          for (let x = 0; x < cols; x++) {
+            const cell = document.createElement("div");
+            cell.className = "cell floor";
+            if (mazeData[y][x] === 1) cell.classList.replace("floor", "wall");
+            if (mazeData[y][x] === 2) cell.classList.replace("floor", "exit");
+
+            // الفأر
+            if (mousePos.x === x && mousePos.y === y) {
+              const img = document.createElement("img");
+              img.src = "mouse (1).png";
+              img.style.width = "38px";
+              img.style.height = "38px";
+              cell.appendChild(img);
+            }
+            // القط
+            if (catPos.x === x && catPos.y === y) {
+              const img = document.createElement("img");
+              img.src = "cat (1).png";
+              img.style.width = "38px";
+              img.style.height = "38px";
+              cell.appendChild(img);
+            }
+
+            mazeEl.appendChild(cell);
+          }
+        }
+      }
+
+      function canMove(x, y) {
+        return x >= 0 && x < cols && y >= 0 && y < rows && mazeData[y][x] !== 1;
+      }
+
+      function moveMouse(dx, dy) {
+        const nx = mousePos.x + dx,
+          ny = mousePos.y + dy;
+        if (canMove(nx, ny)) {
+          mousePos = { x: nx, y: ny };
+          drawMaze();
+          checkWinLose();
+        }
+      }
+
+      function catStep() {
+        const q = [],
+          visited = Array(rows)
+            .fill(0)
+            .map(() => Array(cols).fill(false)),
+          parent = Array(rows)
+            .fill(0)
+            .map(() => Array(cols).fill(null));
+        q.push(catPos);
+        visited[catPos.y][catPos.x] = true;
+        let found = false;
+        while (q.length && !found) {
+          const c = q.shift();
+          const dirs = [
+            { x: 1, y: 0 },
+            { x: -1, y: 0 },
+            { x: 0, y: 1 },
+            { x: 0, y: -1 },
+          ];
+          for (const d of dirs) {
+            const nx = c.x + d.x,
+              ny = c.y + d.y;
+            if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
+            if (visited[ny][nx] || mazeData[ny][nx] === 1) continue;
+            visited[ny][nx] = {};
+            parent[ny][nx] = { x: c.x, y: c.y };
+            if (nx === mousePos.x && ny === mousePos.y) {
+              found = true;
+              let step = { x: nx, y: ny };
+              while (
+                parent[step.y][step.x] &&
+                !(
+                  parent[step.y][step.x].x === catPos.x &&
+                  parent[step.y][step.x].y === catPos.y
+                )
+              )
+                step = parent[step.y][step.x];
+              catPos = { ...step };
+              drawMaze();
+              checkWinLose();
+              return;
+            }
+            q.push({ x: nx, y: ny });
+          }
+        }
+        // fallback عشوائي
+        const dirs = [
+          { x: 1, y: 0 },
+          { x: -1, y: 0 },
+          { x: 0, y: 1 },
+          { x: 0, y: -1 },
+        ].sort(() => Math.random() - 0.5);
+        for (const d of dirs) {
+          const nx = catPos.x + d.x,
+            ny = catPos.y + d.y;
+          if (canMove(nx, ny)) {
+            catPos = { x: nx, y: ny };
+            drawMaze();
+            checkWinLose();
+            break;
+          }
+        }
+      }
+
+      function startCat() {
+        stopCat();
+        catInterval = setInterval(
+          () => catStep(),
+          Math.max(150, 800 - level * 60)
+        );
+      }
+      function stopCat() {
+        if (catInterval) clearInterval(catInterval);
+        catInterval = null;
+      }
+
+      function checkWinLose() {
+        if (mousePos.x === catPos.x && mousePos.y === catPos.y) {
+          stopCat();
+          loseSound.play();
+          alert("القط لقى الفأر — خسرت!");
+          startLevel(level);
+        } else if (mazeData[mousePos.y][mousePos.x] === 2) {
+          stopCat();
+          winSound.play();
+          alert("تهانينا! خرج الفأر — ربحتي!");
+          level++;
+          startLevel(level);
+        }
+      }
+
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowUp") moveMouse(0, -1);
+        if (e.key === "ArrowDown") moveMouse(0, 1);
+        if (e.key === "ArrowLeft") moveMouse(-1, 0);
+        if (e.key === "ArrowRight") moveMouse(1, 0);
+      });
+
+      document
+        .getElementById("startBtn")
+        .addEventListener("click", () => startLevel(level));
+
+      // أزرار التحكم
+      document
+        .getElementById("upBtn")
+        .addEventListener("click", () => moveMouse(0, -1));
+      document
+        .getElementById("downBtn")
+        .addEventListener("click", () => moveMouse(0, 1));
+      document
+        .getElementById("leftBtn")
+        .addEventListener("click", () => moveMouse(-1, 0));
+      document
+        .getElementById("rightBtn")
+        .addEventListener("click", () => moveMouse(1, 0));
+
+      function startLevel(lv) {
+        level = lv;
+        levelNum.textContent = level;
+        generateMaze(lv);
+        drawMaze();
+        startCat();
+      }
+      startLevel(1);
+    </script>
+  </body>
+</html>
